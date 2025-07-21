@@ -1,0 +1,14 @@
+{
+  "name": "iaai-bot",
+  "version": "1.0.0",
+  "type": "module",
+  "main": "iaai-parser.js",
+  "scripts": {
+    "start": "node iaai-parser.js"
+  },
+  "dependencies": {
+    "dotenv": "^16.0.0",
+    "google-spreadsheet": "^3.3.0",
+    "puppeteer": "^21.0.0"
+  }
+}
