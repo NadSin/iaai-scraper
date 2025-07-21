@@ -1,20 +1,14 @@
 {
-  "name": "iaai-scraper",
+  "name": "iaai-parser",
   "version": "1.0.0",
-  "description": "Puppeteer + Google Spreadsheet scraper for IAAI auction listings",
-  "main": "iaai-parser.js",
   "type": "module",
+  "main": "index.js",
   "scripts": {
-    "start": "node iaai-parser.js"
+    "start": "node index.js"
   },
   "dependencies": {
-    "dotenv": "^16.4.5",
+    "puppeteer": "^21.3.8",
     "google-spreadsheet": "^3.3.0",
-    "puppeteer": "^21.3.8"
-  },
-  "engines": {
-    "node": ">=18.0.0"
-  },
-  "author": "",
-  "license": "MIT"
+    "dotenv": "^16.4.5"
+  }
 }
