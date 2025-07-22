@@ -17,7 +17,8 @@ const INTERESTING_MODELS = [
   "Nissan Rogue",
   "Hyundai Creta",
   "Hyundai ix25",
-  "Toyota Venza"
+  "Toyota Venza",
+  "Kia Forte"
 ];
 
 function isInterestingModel(model) {
