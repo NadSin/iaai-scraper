@@ -21,16 +21,17 @@ const INTERESTING_MODELS = [
 ];
 
 function isInterestingModel(model) {
-  // Учитываем возможные пробелы, тире, регистр
-  return INTERESTING_MODELS.some(m => model.replace(/\s+/g, '').toLowerCase().includes(m.replace(/\s+/g, '').toLowerCase()));
+  return INTERESTING_MODELS.some(m =>
+    model.replace(/\s+/g, '').toLowerCase().includes(m.replace(/\s+/g, '').toLowerCase())
+  );
 }
 
-async function getExistingCarIDs(sheet) {
+async function getExistingCarIDsWithRow(sheet) {
   await sheet.loadCells('A2:A');
-  const ids = [];
+  const ids = {};
   for (let row = 1; row < sheet.rowCount; row++) {
     const cell = sheet.getCell(row, 0);
-    if (cell.value) ids.push(String(cell.value));
+    if (cell.value) ids[String(cell.value)] = row;
   }
   return ids;
 }
@@ -86,31 +87,58 @@ async function parseCars() {
 
   await doc.loadInfo();
   const sheet = doc.sheetsByIndex[0];
-  const existingIDs = await getExistingCarIDs(sheet);
-  const newRows = filtered.filter((car) => !existingIDs.includes(car.id));
+  const existingIDs = await getExistingCarIDsWithRow(sheet);
 
-  for (const row of newRows) {
-    await sheet.addRow({
-      ID: row.id,
-      Year: row.year,
-      Model: row.model,
-      Mileage: row.mileage,
-      Damage: row.damage,
-      Keys: row.keys,
-      Airbags: row.airbags,
-      "Buy Now": row.buyNow,
-      "Buy Now Price": row.buyNowPrice,
-      Auction: row.auction,
-      Link: row.link,
-      "Body Style": row.bodyStyle,
-      "Drive Line Type": row.driveLineType,
-      "Fuel Type": row.fuelType,
-      "Exterior Color": row.exteriorColor,
-      "Interior Color": row.interiorColor
-    });
+  let added = 0, updated = 0;
+  for (const car of filtered) {
+    if (existingIDs[car.id]) {
+      // Обновляем существующую строку
+      const rowIdx = existingIDs[car.id];
+      const rows = await sheet.getRows({ offset: rowIdx - 1, limit: 1 });
+      if (rows && rows[0]) {
+        rows[0].Year = car.year;
+        rows[0].Model = car.model;
+        rows[0].Mileage = car.mileage;
+        rows[0].Damage = car.damage;
+        rows[0].Keys = car.keys;
+        rows[0].Airbags = car.airbags;
+        rows[0]["Buy Now"] = car.buyNow;
+        rows[0]["Buy Now Price"] = car.buyNowPrice;
+        rows[0].Auction = car.auction;
+        rows[0].Link = car.link;
+        rows[0]["Body Style"] = car.bodyStyle;
+        rows[0]["Drive Line Type"] = car.driveLineType;
+        rows[0]["Fuel Type"] = car.fuelType;
+        rows[0]["Exterior Color"] = car.exteriorColor;
+        rows[0]["Interior Color"] = car.interiorColor;
+        await rows[0].save();
+        updated++;
+      }
+    } else {
+      // Добавляем новую строку
+      await sheet.addRow({
+        ID: car.id,
+        Year: car.year,
+        Model: car.model,
+        Mileage: car.mileage,
+        Damage: car.damage,
+        Keys: car.keys,
+        Airbags: car.airbags,
+        "Buy Now": car.buyNow,
+        "Buy Now Price": car.buyNowPrice,
+        Auction: car.auction,
+        Link: car.link,
+        "Body Style": car.bodyStyle,
+        "Drive Line Type": car.driveLineType,
+        "Fuel Type": car.fuelType,
+        "Exterior Color": car.exteriorColor,
+        "Interior Color": car.interiorColor
+      });
+      added++;
+    }
   }
 
-  return { added: newRows.length, total: filtered.length };
+  return { added, updated, total: filtered.length };
 }
 
 // Express сервер для Render
@@ -124,7 +152,7 @@ app.get("/", (req, res) => {
 app.get("/parse", async (req, res) => {
   try {
     const result = await parseCars();
-    res.send(`✅ Добавлено ${result.added} новых строк из ${result.total} подходящих.`);
+    res.send(`✅ Добавлено ${result.added} новых строк, обновлено ${result.updated} из ${result.total} подходящих.`);
   } catch (e) {
     console.error(e);
     res.status(500).send("Ошибка при парсинге: " + e.message);
