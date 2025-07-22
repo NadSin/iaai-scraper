@@ -1,12 +1,14 @@
+import express from "express";
 import puppeteer from "puppeteer";
 import { GoogleSpreadsheet } from "google-spreadsheet";
 import 'dotenv/config';
 
-const SHEET_ID = process.env.SHEET_ID;
+const SHEET_ID = "1nxeatmU5hC-M_ZSqywbyareer0DOvnn2uz5FZzhVxUs";
 const doc = new GoogleSpreadsheet(SHEET_ID);
 
-// Модели, которые нужно искать
-const CAR_MODELS = [
+const SEARCH_URL = "https://www.iaai.com/Search?url=DYW%2f9Bj2biHogN82zpUh5rlh2eolx5NM9M9PdD1aMOw%3d";
+
+const INTERESTING_MODELS = [
   "Mazda CX‑30",
   "Kia Seltos",
   "Toyota C‑HR",
@@ -18,35 +20,11 @@ const CAR_MODELS = [
   "Toyota Venza"
 ];
 
-// Нежелательные типы повреждений
-const EXCLUDED_DAMAGE_TYPES = [
-  "hail",
-  "rollover",
-  "biohazard",
-  "chemical",
-  "burn",
-  "flood",
-  "water",
-  "drowning"
-];
-
-// Проверка на допустимый цвет
-function isWhiteColor(text) {
-  return /white/i.test(text);
+function isInterestingModel(model) {
+  // Учитываем возможные пробелы, тире, регистр
+  return INTERESTING_MODELS.some(m => model.replace(/\s+/g, '').toLowerCase().includes(m.replace(/\s+/g, '').toLowerCase()));
 }
 
-// Проверка типа повреждений (одна сторона)
-function isOneSideDamage(desc) {
-  return /(front|rear|side)/i.test(desc);
-}
-
-// Извлечение ID из URL
-function extractCarId(link) {
-  const match = link.match(/\/VehicleDetails\/(\d+)/);
-  return match ? match[1] : null;
-}
-
-// Получить список уже добавленных ID
 async function getExistingCarIDs(sheet) {
   await sheet.loadCells('A2:A');
   const ids = [];
@@ -57,60 +35,49 @@ async function getExistingCarIDs(sheet) {
   return ids;
 }
 
-async function main() {
+async function parseCars() {
   const browser = await puppeteer.launch({ headless: "new" });
   const page = await browser.newPage();
-  const results = [];
+  await page.goto(SEARCH_URL, { waitUntil: "networkidle2" });
 
-  for (const model of CAR_MODELS) {
-    const url = `https://www.iaai.com/Search?Keyword=${encodeURIComponent(model)}`;
-    await page.goto(url, { waitUntil: "networkidle2" });
-
-    try {
-      await page.waitForSelector(".search-lot-box", { timeout: 15000 });
-    } catch (e) {
-      console.warn(`⚠️ No results found for ${model}`);
-      continue;
-    }
-
-    const modelResults = await page.evaluate(() => {
-      return Array.from(document.querySelectorAll(".search-lot-box")).map((el) => {
-        const link = el.querySelector("a")?.href || "";
-        const year = el.querySelector(".title-year")?.innerText || "";
-        const model = el.querySelector(".title-make-model")?.innerText || "";
-        const mileageText = el.querySelector(".lot-mileage")?.innerText || "";
-        const damage = el.querySelector(".lot-damage-type")?.innerText || "";
-        const color = el.querySelector(".lot-color")?.innerText || "";
-        const keys = el.innerText.includes("Keys: Yes") ? "Yes" : "No";
-        const airbags = el.innerText.includes("Airbags: Intact") ? "Yes" : "No";
-        const price = el.querySelector(".buy-now-price")?.innerText || "N/A";
-
-        const mileage = parseInt(mileageText.replace(/[^\d]/g, ""), 10) || 0;
-        const id = link.match(/\/VehicleDetails\/(\d+)/)?.[1] || "";
-
-        return { id, year, model, mileage, damage, color, keys, airbags, price, link };
-      });
-    });
-
-    const filtered = modelResults.filter((item) => {
-      return (
-        item.id &&
-        parseInt(item.year) >= 2021 &&
-        parseInt(item.year) <= 2023 &&
-        item.mileage >= 1 &&
-        item.mileage <= 80000 &&
-        item.keys === "Yes" &&
-        item.airbags === "Yes" &&
-        !EXCLUDED_DAMAGE_TYPES.some((d) => item.damage.toLowerCase().includes(d)) &&
-        isOneSideDamage(item.damage) &&
-        !isWhiteColor(item.color)
-      );
-    });
-
-    results.push(...filtered);
+  try {
+    await page.waitForSelector(".search-lot-box", { timeout: 15000 });
+  } catch (e) {
+    await browser.close();
+    throw new Error("Нет результатов на странице поиска");
   }
 
+  const cars = await page.evaluate(() => {
+    return Array.from(document.querySelectorAll(".search-lot-box")).map((el) => {
+      const link = el.querySelector("a")?.href || "";
+      const id = link.match(/\/VehicleDetails\/(\d+)/)?.[1] || "";
+      const year = el.querySelector(".title-year")?.innerText || "";
+      const model = el.querySelector(".title-make-model")?.innerText || "";
+      const mileageText = el.querySelector(".lot-mileage")?.innerText || "";
+      const mileage = parseInt(mileageText.replace(/[^\d]/g, ""), 10) || 0;
+      const damage = el.querySelector(".lot-damage-type")?.innerText || "";
+      const keys = el.innerText.includes("Keys: Yes") ? "Yes" : "No";
+      const airbags = el.innerText.includes("Airbags: Intact") ? "Yes" : "No";
+      const buyNow = el.innerText.includes("Buy Now") ? "Yes" : "No";
+      const buyNowPrice = el.querySelector(".buy-now-price")?.innerText || "N/A";
+      const auction = el.querySelector(".lot-auction")?.innerText || "";
+      const bodyStyle = el.querySelector(".lot-body-style")?.innerText || "";
+      const driveLineType = el.querySelector(".lot-drive-line-type")?.innerText || "";
+      const fuelType = el.querySelector(".lot-fuel-type")?.innerText || "";
+      const exteriorColor = el.querySelector(".lot-color")?.innerText || "";
+      const interiorColor = el.querySelector(".lot-interior-color")?.innerText || "";
+
+      return {
+        id, year, model, mileage, damage, keys, airbags, buyNow, buyNowPrice, auction, link,
+        bodyStyle, driveLineType, fuelType, exteriorColor, interiorColor
+      };
+    });
+  });
+
   await browser.close();
+
+  // Фильтрация по интересующим моделям
+  const filtered = cars.filter(car => car.id && isInterestingModel(car.model));
 
   await doc.useServiceAccountAuth({
     client_email: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL,
@@ -119,10 +86,8 @@ async function main() {
 
   await doc.loadInfo();
   const sheet = doc.sheetsByIndex[0];
-
   const existingIDs = await getExistingCarIDs(sheet);
-
-  const newRows = results.filter((car) => !existingIDs.includes(car.id));
+  const newRows = filtered.filter((car) => !existingIDs.includes(car.id));
 
   for (const row of newRows) {
     await sheet.addRow({
@@ -133,12 +98,39 @@ async function main() {
       Damage: row.damage,
       Keys: row.keys,
       Airbags: row.airbags,
+      "Buy Now": row.buyNow,
+      "Buy Now Price": row.buyNowPrice,
+      Auction: row.auction,
       Link: row.link,
-      "Buy Now Price": row.price,
+      "Body Style": row.bodyStyle,
+      "Drive Line Type": row.driveLineType,
+      "Fuel Type": row.fuelType,
+      "Exterior Color": row.exteriorColor,
+      "Interior Color": row.interiorColor
     });
   }
 
-  console.log(`✅ Добавлено ${newRows.length} новых строк из ${results.length} подходящих.`);
+  return { added: newRows.length, total: filtered.length };
 }
 
-main().catch(console.error);
+// Express сервер для Render
+const app = express();
+const PORT = process.env.PORT || 10000;
+
+app.get("/", (req, res) => {
+  res.send("Парсер IAAI работает! Для запуска парсинга перейдите на /parse");
+});
+
+app.get("/parse", async (req, res) => {
+  try {
+    const result = await parseCars();
+    res.send(`✅ Добавлено ${result.added} новых строк из ${result.total} подходящих.`);
+  } catch (e) {
+    console.error(e);
+    res.status(500).send("Ошибка при парсинге: " + e.message);
+  }
+});
+
+app.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server listening on port ${PORT}`);
+});
